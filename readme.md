@@ -18,7 +18,12 @@ target="_blank"><img
 src="https://latex.codecogs.com/gif.latex?\partial&space;R(q)&space;/&space;\partial&space;q"
 title="\partial R(q) / \partial q" /></a>). This project evaluates the moment
 arm at different configurations and approximates its terms using multivariate
-polynomial fitting, thus a symbolic expression is derived.
+polynomial fitting, thus a symbolic expression is derived. Examples are provided
+for the Hamner 2010 model (24 DoFs and 94 muscles). Results are calculated and
+stored in the *.dat* files which can be loaded using python's pickle
+utility. The *R.dat* file is the symbolic expression (sympy Matrix) of the
+muscle moment arm matrix. Visual inspection of the polynomial fitting is
+provided below.
 
 
 ![Moment arm of vas_int_r at knee joint](vas_int_r_knee_angle_r.png)
