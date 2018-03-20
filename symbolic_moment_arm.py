@@ -318,7 +318,19 @@ def find_intermediate_joints(origin_body, insertion_body, model_tree, joints):
 
 
 def calculate_spanning_muscle_coordinates(model_file, muscle_coordinates_file):
-    """
+    """Calculates the coordinates that are spanned by each muscle. Useful for
+    reducing the required computation of the muscle moment arm matrix.
+
+    Parameters
+    ----------
+
+    model_file: string
+        OpenSim .osim
+
+    muscle_coordinates_file: string
+        where to store the results as a csv file (';' delimiter) containing
+        the name of the muscle and the spanning coordinates in each row
+
     """
     model = opensim.Model(model_file)
     model.initSystem()
