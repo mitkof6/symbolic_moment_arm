@@ -1,17 +1,24 @@
 Symbolic Derivation of the Muscle Moment Arm Matrix (OpenSim v4.0)
 ---
 
-[https://github.com/opensim-org/opensim-core](OpenSim) is a framework for
+[OpenSim](https://github.com/opensim-org/opensim-core) is a framework for
 modeling and simulation of musculoskeletal systems. The muscle moment arm is an
 important variable for evaluating the effectiveness of a muscle to actuate a
 particular joint. Calculating the muscle moment arm requires knowledge of the
 muscle path and wrapping surfaces. OpenSim is restricted to evaluate the muscle
-moment arm at an arbitrary configuration (e.g., $R(q) \in \mathcal{R}^{n x m}, q
-\in \mathcal{R}^{n}$ with $n$ degrees of freedom and $m$ muscles), lacking the
-information for calculating higher order derivatives (e.g., $\partial R(q) /
-\partial q$). This project evaluates the moment arm at different configurations
-and approximates its terms using multivariate polynomial fitting, thus a
-symbolic expression is derived.
+moment arm at an arbitrary configuration (e.g., <a
+href="https://www.codecogs.com/eqnedit.php?latex=R(q)&space;\in&space;\mathcal{R}^{n&space;x&space;m},&space;q&space;\in&space;\mathcal{R}^{n}"
+target="_blank"><img
+src="https://latex.codecogs.com/gif.latex?R(q)&space;\in&space;\mathcal{R}^{n&space;x&space;m},&space;q&space;\in&space;\mathcal{R}^{n}"
+title="R(q) \in \mathcal{R}^{n x m}, q \in \mathcal{R}^{n}" /></a> with *n*
+degrees of freedom and *m* muscles), lacking the information for calculating
+higher order derivatives (e.g., <a
+href="https://www.codecogs.com/eqnedit.php?latex=\partial&space;R(q)&space;/&space;\partial&space;q"
+target="_blank"><img
+src="https://latex.codecogs.com/gif.latex?\partial&space;R(q)&space;/&space;\partial&space;q"
+title="\partial R(q) / \partial q" /></a>). This project evaluates the moment
+arm at different configurations and approximates its terms using multivariate
+polynomial fitting, thus a symbolic expression is derived.
 
 
 ![Moment arm of vas_int_r at knee joint](vas_int_r_knee_angle_r.png)
