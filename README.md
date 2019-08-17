@@ -33,10 +33,14 @@ provided below.
 Dependencies
 ---
 
-- OpenSim v3.3: python wrappings 
+There are two versions that work either with OpenSim v3.3 or OpenSim v4.0.
+
+- OpenSim v3.3: Python 2.7 bindings 
+- OpenSim v4.0: Python 3.7 bindings
 - sympy: `pip install sympy`
 - numpy: `pip install numpy`
-- matplotlib: `pip install matplotlib`
+- matplotlib: `pip install matplotlib` (use custom implementation that
+  fixes some bugs with Python 3.7)
 - multipolyfit: `pip install multipolyfit` for multivariate polynomial fitting
 
 

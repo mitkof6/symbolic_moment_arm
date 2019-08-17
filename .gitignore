@@ -1,2 +1,3 @@
 *.log
 *~
+/__pycache__/multipolyfit.cpython-37.pyc
