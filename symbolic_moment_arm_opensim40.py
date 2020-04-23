@@ -11,20 +11,24 @@ import os
 import csv
 import pickle
 import opensim
-# import collections
 import numpy as np
 import sympy as sp
 import operator  # used in sorted
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from matplotlib.offsetbox import AnchoredText
 from mpl_toolkits.mplot3d import Axes3D  # for projection='3d'
 from matplotlib.backends.backend_pdf import PdfPages
 from multipolyfit import multipolyfit, mk_sympy_function
 plt.rcParams['font.size'] = 13
 
-
 ###############################################################################
 # utilities
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 def cartesian(arrays, out=None):
     """Generate a cartesian product of input arrays.
@@ -140,6 +144,12 @@ def find_intermediate_joints(origin_body, insertion_body, model_tree, joints):
 
     return False
 
+def annotate_plot(ax, text):
+    """Annotate a figure by adding a text.
+    """
+    at = AnchoredText(text, frameon=True, loc='upper left')
+    at.patch.set_boxstyle('round, pad=0, rounding_size=0.2')
+    ax.add_artist(at)
 
 def visualize_moment_arm(moment_arm_coordinate, muscle, coordinates,
                          sampling_dict, model_coordinates, model_muscles, R,
@@ -171,17 +181,25 @@ def visualize_moment_arm(moment_arm_coordinate, muscle, coordinates,
 
     pdf: PdfPages
     """
-    if isinstance(coordinates, str):
-        # coordinates = sampling_dict[muscle]['coordinates']
-        sampling_grid = sampling_dict[muscle]['sampling_grid']
-        moment_arm = sampling_dict[muscle]['moment_arm']
-        idx = coordinates.index(moment_arm_coordinate)
-        poly = R[model_muscles[muscle],
-                 model_coordinates[moment_arm_coordinate]]
-        moment_arm_poly = np.array([
-            poly.subs(dict(zip(poly.free_symbols, x))) for x in sampling_grid
-        ], np.float)
+    # extract quantities
+    sampling_grid = sampling_dict[muscle]['sampling_grid']
+    moment_arm = sampling_dict[muscle]['moment_arm']
+    idx = coordinates.index(moment_arm_coordinate)
+    poly = R[model_muscles[muscle],
+             model_coordinates[moment_arm_coordinate]]
+    moment_arm_poly = np.array([
+        poly.subs(dict(zip([sp.Symbol(coord) for coord in coordinates], x)))
+        for x in sampling_grid], np.float)
 
+    # RMSE
+    rmse = np.round(np.sqrt(np.mean((100.0 * moment_arm[:, idx] -
+                                     100.0 * moment_arm_poly) ** 2)), 5)
+    print('Moment arm RMSE = ' + str(rmse).ljust(8) +
+          'for ' + muscle + ' @ ' + moment_arm_coordinate +
+          '(' + str(coordinates).strip('[]') + ')')
+
+    # visualization
+    if isinstance(coordinates, list) and len(coordinates) == 1:
         fig = plt.figure()
         ax = fig.gca()
         ax.plot(
@@ -189,27 +207,15 @@ def visualize_moment_arm(moment_arm_coordinate, muscle, coordinates,
             label='sampled')
         ax.plot(sampling_grid[:, idx], moment_arm_poly * 100.0, 'b-',
                 label='analytical')
-        ax.set_xlabel(coordinates + ' (rad)')
+        annotate_plot(ax, 'RMSE = ' + str(rmse))
+        ax.set_xlabel(coordinates[0] + ' (rad)')
         ax.set_ylabel(moment_arm_coordinate + ' (cm)')
         ax.set_title(muscle)
-        ax.legend()
+        ax.legend(loc='lower left')
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close()
     elif isinstance(coordinates, list) and len(coordinates) == 2:
-        # coordinates = sampling_dict[muscle]['coordinates']
-        sampling_grid = sampling_dict[muscle]['sampling_grid']
-        moment_arm = sampling_dict[muscle]['moment_arm']
-        idx = coordinates.index(moment_arm_coordinate)
-        poly = R[model_muscles[muscle], model_coordinates[
-            moment_arm_coordinate]]
-
-        # poly.free_symbols is not used because it may not preserve order
-        poly_symbols = [sp.Symbol(x) for x in coordinates]
-        moment_arm_poly = np.array([
-            poly.subs(dict(zip(poly_symbols, x))) for x in sampling_grid
-        ], np.float)
-
         fig = plt.figure()
         ax = fig.gca(projection='3d')
         ax.scatter(
@@ -230,6 +236,7 @@ def visualize_moment_arm(moment_arm_coordinate, muscle, coordinates,
             antialiased=True)
         surf._facecolors2d = surf._facecolors3d
         surf._edgecolors2d = surf._edgecolors3d
+        annotate_plot(ax, 'RMSE = ' + str(rmse))
         ax.set_xlabel(coordinates[0] + ' (rad)')
         ax.set_ylabel(coordinates[1] + ' (rad)')
         ax.set_zlabel(moment_arm_coordinate + ' (cm)')
@@ -238,13 +245,16 @@ def visualize_moment_arm(moment_arm_coordinate, muscle, coordinates,
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close()
+    elif isinstance(coordinates, list) and len(coordinates) > 2:
+        print('visualization of moment arm for muscle: ' + muscle +
+              ' not possible, but only RMSE validation')
     else:
         return
 
 
 def calculate_moment_arm_symbolically(model_file, results_dir):
     """Calculate the muscle moment arm matrix symbolically for a
-     particular OpenSim model.
+    particular OpenSim model.
 
     """
     print('Calculating...')
@@ -260,9 +270,15 @@ def calculate_moment_arm_symbolically(model_file, results_dir):
     model = opensim.Model(model_file)
     state = model.initSystem()
 
-    model_coordinates = {}
+    model_coordinates = {}  # coordinates in multibody order
     for i, coordinate in enumerate(model.getCoordinateSet()):
-        model_coordinates[coordinate.getName()] = i
+        mbix = coordinate.getBodyIndex()
+        mqix = coordinate.getMobilizerQIndex()
+        model_coordinates[coordinate.getName()] = (mbix, mqix)
+    model_coordinates = dict(
+        sorted(model_coordinates.items(), key=lambda x: x[1]))
+    for i, (key, value) in enumerate(model_coordinates.items()):
+        model_coordinates[key] = i
 
     model_muscles = {}
     for i, muscle in enumerate(model.getMuscles()):
@@ -274,7 +290,6 @@ def calculate_moment_arm_symbolically(model_file, results_dir):
     resolution = {1: 15, 2: 10, 3: 8, 4: 5, 5: 5}
     for muscle, k in tqdm(sorted(model_muscles.items(),
                                  key=operator.itemgetter(1))):
-        # get initial state each time
         coordinates = muscle_coordinates[muscle]
         N = resolution[len(coordinates)]
 
@@ -285,6 +300,7 @@ def calculate_moment_arm_symbolically(model_file, results_dir):
             for i, coordinate in enumerate(coordinates):
                 model.updCoordinateSet().get(coordinate).setValue(state, q[i])
 
+            # realize stage
             model.realizePosition(state)
             tmp = []
             for coordinate in coordinates:
@@ -309,15 +325,8 @@ def calculate_moment_arm_symbolically(model_file, results_dir):
                                           moment_arm[:, i],
                                           degree, powers_out=True)
             polynomial = mk_sympy_function(coeffs, powers)
-
-            # the order of the free symbols may be incorrect
-            free_symbols = list(polynomial.free_symbols)
-            if len(free_symbols) > 1 and \
-               str(free_symbols[0]) > str(free_symbols[1]):
-                free_symbols = free_symbols[::-1]
-
-            polynomial = polynomial.subs(
-                dict(zip(free_symbols, [sp.Symbol(x) for x in coordinates])))
+            polynomial = polynomial.subs({sp.Symbol('x%d' % i): sp.Symbol(x)
+                                          for i, x in enumerate(coordinates)})
             muscle_moment_row[model_coordinates[coordinate]] = polynomial
 
         R.append(muscle_moment_row)
@@ -358,9 +367,16 @@ def calculate_spanning_muscle_coordinates(model_file, results_dir):
     for body in model.getBodySet():
         ordered_body_set.append(body.getName())
 
+    model_coordinates = {}  # coordinates in multibody order
+    for i, coordinate in enumerate(model.getCoordinateSet()):
+        mbix = coordinate.getBodyIndex()
+        mqix = coordinate.getMobilizerQIndex()
+        model_coordinates[coordinate.getName()] = (mbix, mqix)
+    model_coordinates = dict(
+        sorted(model_coordinates.items(), key=lambda x: x[1]))
     ordered_coordinate_set = []
-    for coordinate in model.getCoordinateSet():
-        ordered_coordinate_set.append(coordinate.getName())
+    for key, value in model_coordinates.items():
+        ordered_coordinate_set.append(key)
 
     # get the coordinates that are spanned by the muscles
     muscle_coordinates = {}
@@ -407,7 +423,7 @@ def calculate_spanning_muscle_coordinates(model_file, results_dir):
             csv_file.write('\n')
 
 
-def export_moment_arm_as_c_function(R, model_coordinates, file_name,
+def export_moment_arm_as_c_function(R, model_coordinates, model_muscles, file_name,
                                     results_dir):
     """Exports the moment arm matrix R [coordinates x muscles] as a
     callable functions of the coordinate positions.
@@ -415,9 +431,9 @@ def export_moment_arm_as_c_function(R, model_coordinates, file_name,
     """
     (m, n) = R.shape
     assert(m > n)
-    symbol_sybstitution = {sp.Symbol(key): sp.Symbol('q[' + str(val) + ']')
+    symbol_substitution = {sp.Symbol(key): sp.Symbol('q[' + str(val) + ']')
                            for key, val in model_coordinates.items()}
-    RT = R.transpose().subs(symbol_sybstitution)
+    RT = R.transpose().subs(symbol_substitution)
 
     # header
     with open (results_dir + file_name + '.h', 'w') as header_file:
@@ -427,14 +443,43 @@ def export_moment_arm_as_c_function(R, model_coordinates, file_name,
         header_file.write('#if __GNUG__\n')
         header_file.write('#define OPTIMIZATION __attribute__ ((optimize(0)))\n')
         header_file.write('#else\n#define OPTIMIZATION\n#endif\n\n')
-        header_file.write('SimTK::Matrix calcMomentArm(const SimTK::Vector& q)' +
-                          ' OPTIMIZATION;\n\n')
+        header_file.write('#ifdef __cplusplus\n' +
+                          'extern "C" {\n')
+        header_file.write('MomentArm_API ' +
+                          'SimTK::Matrix calcMomentArm(const SimTK::Vector& q) ' +
+                          'OPTIMIZATION;\n')
+        header_file.write('MomentArm_API ' +
+                          'std::vector<std::string> getModelMuscleSymbolicOrder() ' +
+                          'OPTIMIZATION;\n')
+        header_file.write('MomentArm_API ' +
+                          'std::vector<std::string> getModelCoordinateSymbolicOrder() ' +
+                          'OPTIMIZATION;\n')
+        header_file.write('}\n' +
+                          '#endif\n\n')
         header_file.write('#endif')
 
     # source
     with open(results_dir + file_name + '.cpp', 'w') as source_file:
         source_file.write('#include "' + file_name + '.h"\n\n')
+        source_file.write('using namespace std;\n')
         source_file.write('using namespace SimTK;\n\n')
+
+        source_file.write('vector<string> getModelCoordinateSymbolicOrder(){\n')
+        source_file.write('    return vector<string>({\n')
+        cc_model_coordinates = list(chunks(list(model_coordinates.keys()),3))
+        for coord in cc_model_coordinates[:-1]:
+            source_file.write('        ' + str(coord)[1:-1].replace('\'', '\"') + ',\n')
+        source_file.write('        ' +
+                str(cc_model_coordinates[-1])[1:-1].replace('\'', '\"') + '});\n}\n\n')
+
+        source_file.write('std::vector<std::string> getModelMuscleSymbolicOrder(){\n')
+        source_file.write('    return vector<string>({\n')
+        cc_model_muscles = list(chunks(list(model_muscles.keys()),4))
+        for muscle in cc_model_muscles[:-1]:
+            source_file.write('        ' + str(muscle)[1:-1].replace('\'', '\"') + ',\n')
+        source_file.write('        ' +
+                str(cc_model_muscles[-1])[1:-1].replace('\'', '\"') + '});\n}\n\n')
+
         source_file.write('Matrix calcMomentArm(const Vector& q) {\n')
         source_file.write('    Matrix R(' + str(n) + ', ' + str(m) + ', 0.0);\n')
 
@@ -468,8 +513,7 @@ if not os.path.isfile(model_file):
 if not os.path.isdir(results_dir):
     raise RuntimeError('required folders do not exist')
 
-# when computed once results are stored into files and loaded with
-# (pickle)
+# when computed once results are stored into files and loaded with (pickle)
 compute = True
 visualize = True
 
@@ -478,35 +522,32 @@ if compute:
     calculate_moment_arm_symbolically(model_file, results_dir)
 
 if visualize:
+    # load data
     with open(results_dir + 'R.dat', 'rb') as f_r,\
-            open(results_dir + 'sampling_dict.dat', 'rb') as f_sd,\
-            open(results_dir + 'model_coordinates.dat', 'rb') as f_mc,\
-            open(results_dir + 'model_muscles.dat', 'rb') as f_mm:
+         open(results_dir + 'sampling_dict.dat', 'rb') as f_sd,\
+         open(results_dir + 'model_coordinates.dat', 'rb') as f_mc,\
+         open(results_dir + 'model_muscles.dat', 'rb') as f_mm:
         R = pickle.load(f_r)
         sampling_dict = pickle.load(f_sd)
         model_coordinates = pickle.load(f_mc)
         model_muscles = pickle.load(f_mm)
 
     # export moment arm
-    export_moment_arm_as_c_function(R, model_coordinates,
+    export_moment_arm_as_c_function(R, model_coordinates, model_muscles,
                                     'SymbolicMomentArm', results_dir)
 
     # visualize data
-    with PdfPages(results_dir + 'compare_ma.pdf') as pdf:
+    with PdfPages(results_dir + 'fig/compare_ma.pdf') as pdf:
         for muscle in sampling_dict.keys():
             coordinates = sampling_dict[muscle]['coordinates']
             if len(coordinates) == 1:
                 visualize_moment_arm(coordinates[0], muscle,
-                                     coordinates[0],
+                                     coordinates,
                                      sampling_dict,
                                      model_coordinates,
                                      model_muscles, R, pdf)
-            elif len(coordinates) == 2:
-                visualize_moment_arm(coordinates[0], muscle, coordinates,
-                                     sampling_dict, model_coordinates,
-                                     model_muscles, R, pdf)
-                visualize_moment_arm(coordinates[1], muscle, coordinates,
-                                     sampling_dict, model_coordinates,
-                                     model_muscles, R, pdf)
-            else:
-                print('only 2D and 3D visualization, skip: ' + muscle)
+            elif len(coordinates) > 1:
+                for coordinate in coordinates:
+                    visualize_moment_arm(coordinate, muscle, coordinates,
+                                         sampling_dict, model_coordinates,
+                                         model_muscles, R, pdf)
